@@ -1,0 +1,234 @@
+# Article I — Building Yao's Garbled Circuit: From Wire Labels to Private Computation
+
+## 1. The computational problem
+
+Suppose Alice holds a bit string $x$ and Bob holds a bit string $y$. They agree on a deterministic function $f$ and want to obtain its result without disclosing unnecessary information about their inputs. A representative task is equality testing: both participants want to learn whether their strings match, but neither should receive the other person's complete string.
+
+The phrase “without disclosing information” requires qualification. If the result establishes that the strings are equal, each participant can already infer the other string from their own. The achievable requirement is therefore to reveal no additional information beyond what follows from a participant's own input, the authorized output, and agreed public parameters.
+
+Yao's garbled-circuit approach realizes this objective by representing $f$ as a Boolean circuit and evaluating an encoded version of that circuit. One participant constructs the encoding; the other executes it. The central invariant is that the executor holds one active label for each processed wire, rather than the wire's ordinary Boolean value. The basic protocol has a formal security treatment against semi-honest adversaries in Lindell and Pinkas's work.[1]
+
+For clarity, this article assumes that Bob receives the output. Other output arrangements require corresponding protocol rules. The circuit, input lengths, and intended output policy are public.
+
+## 2. Establishing the circuit representation
+
+A Boolean circuit is a directed acyclic graph whose wires carry bits and whose gates implement operations such as AND, XOR, and NOT. A gate can be evaluated after the values on its incoming wires are available. Following a topological ordering therefore produces the final output.
+
+For a two-input gate $g$ with input wires $a,b$ and output wire $c$, ordinary evaluation computes
+
+$$
+v_c=g(v_a,v_b).
+$$
+
+The same representation supports much larger tasks. Fixed-width addition becomes a network of carry and sum gates; a comparison becomes a circuit that tracks the first differing bit; a conditional assignment becomes a multiplexer. A bounded computation can consequently be expressed as a finite collection of small Boolean operations.
+
+This representation makes privacy easier to reason about because the execution schedule can be fixed before private inputs are supplied. Consider a conditional assignment with selection bit $s$ and candidate bits $u,v$:
+
+$$
+z=v\oplus\bigl(s\land(u\oplus v)\bigr).
+$$
+
+Substituting $s=0$ gives $z=v$, and substituting $s=1$ gives $z=u$. The same gates execute for both choices. The private condition changes wire values without requiring the protocol to announce which branch was taken.
+
+The price is that a public circuit must account for the supported execution bounds. A loop with a private stopping condition cannot simply stop sending messages when the condition becomes false: that behavior would reveal something about the input. A straightforward compilation instead executes a public maximum number of iterations and uses circuit logic to preserve the appropriate state.
+
+## 3. Replacing values with wire labels
+
+For every wire $w$, the garbler generates two labels,
+
+$$
+K_w^0,\quad K_w^1,
+$$
+
+corresponding to Boolean values 0 and 1. These superscripts describe the garbler's private interpretation; they do not appear as readable annotations attached to the labels sent to the evaluator.
+
+Alice knows the complete mapping. Bob receives only the label corresponding to the actual value on a wire. Possessing $K_w^1$ therefore does not mean that Bob is told “this wire equals 1.” It means that he possesses a string that enables subsequent encoded operations involving that wire.
+
+This distinction explains how a garbled circuit can preserve hidden intermediate results. A label has two simultaneous roles: it is an encoding of a bit, and it is cryptographic material used to obtain labels on later wires. The evaluator needs the latter role to execute the circuit. He generally does not need the former interpretation until an authorized output is decoded.
+
+## 4. Deriving a garbled AND gate
+
+An AND gate has the following logical behavior:
+
+| Input $i$ | Input $j$ | Output $i\land j$ | Output label |
+|---|---|---|---|
+| 0 | 0 | 0 | $K_c^0$ |
+| 0 | 1 | 0 | $K_c^0$ |
+| 1 | 0 | 0 | $K_c^0$ |
+| 1 | 1 | 1 | $K_c^1$ |
+
+We want a corresponding encoded operation that transforms $K_a^i,K_b^j$ into $K_c^{i\land j}$ while withholding the other output label. Abstractly, write its four entries as
+
+$$
+T_{i,j}=\operatorname{Enc}_{K_a^i,K_b^j,t}
+\bigl(K_c^{i\land j}\bigr),
+$$
+
+where $t$ identifies the gate. The notation denotes a construction specifically suitable for garbling; choosing an arbitrary encryption algorithm is not sufficient to justify its security.
+
+For an illustrative random-oracle-style formulation, define a label-length pad
+
+$$
+P_{i,j}=H(\operatorname{encode}(\mathsf{sid},t,K_a^i,K_b^j))
+$$
+
+and set
+
+$$
+T_{i,j}=P_{i,j}\oplus K_c^{i\land j}.
+$$
+
+Here $\mathsf{sid}$ identifies the execution, $t$ separates gates, and $\operatorname{encode}$ is an unambiguous encoding of ordered fields. The output length of $H$ matches the label length. This is a teaching construction under an idealized hash model, not a recommendation to replace a reviewed garbling scheme with handwritten hash code.
+
+If Bob has the active labels $K_a^i,K_b^j$ and selects the correct table entry, the algebra is immediate:
+
+$$
+T_{i,j}\oplus H(\operatorname{encode}(\mathsf{sid},t,K_a^i,K_b^j))
+=K_c^{i\land j}.
+$$
+
+He can use that output label at the next gate. Notice that three entries contain an encoding of the same output label for an AND gate, but use different pads. Computing one pad does not supply the missing input labels needed to compute the others.
+
+## 5. Selecting a row without exposing its semantics
+
+Sending entries in the obvious order $00,01,10,11$ would associate visible positions with semantic inputs. An evaluator who learned which row succeeded could then learn more than intended. Garbling must address both row selection and the meaning of the selected position.
+
+Point-and-permute provides a convenient solution. For each wire $w$, Alice samples a random bit $r_w$ and embeds a selection bit in its two labels:
+
+$$
+p(K_w^b)=r_w\oplus b.
+$$
+
+The two labels have opposite selection bits. Their remaining material is sampled with sufficient entropy for the selected security level. For a gate with input wires $a,b$, Alice places the entry for semantic inputs $(i,j)$ at physical position
+
+$$
+2p(K_a^i)+p(K_b^j).
+$$
+
+Bob extracts the two selection bits from his labels and obtains a row index directly. The selection bit by itself does not reveal the semantic bit because Bob does not know the corresponding mask $r_w$. Yakoubov's technical introduction describes this mechanism and its relationship to other garbling optimizations.[2]
+
+As a small check, take $r_a=1$ and $r_b=0$. The semantic input $(1,0)$ produces selection bits $(0,0)$, so its ciphertext occupies physical row 0. The semantic input $(0,0)$ instead occupies row 2. Physical position and logical input have deliberately become different coordinates.
+
+Point-and-permute also removes the need to identify the correct output by trying every ciphertext. In the illustrative XOR-masking formula above, decrypting an incorrect row merely yields another string; it does not inherently return an error. Correct indexing is therefore an essential part of that formulation.
+
+## 6. Obtaining private input labels
+
+Input delivery has two cases. Alice already knows $x$, so she can send $K_w^{x_i}$ for each input wire belonging to her. Bob's labels require a different procedure because Alice must not learn his input bits.
+
+For a Bob input bit $y_i$, Alice acts as the sender in a 1-out-of-2 oblivious transfer with messages
+
+$$
+(K_w^0,K_w^1).
+$$
+
+Bob acts as the receiver with choice $y_i$ and obtains $K_w^{y_i}$. The sender must not learn the choice, and the receiver must not learn the unselected message. Both properties matter: revealing the choice discloses an input bit, whereas receiving both labels could enable evaluations for additional input assignments.
+
+For large inputs, a separate expensive public-key exchange for every bit would be unattractive. OT extension addresses the amortization problem by building many transfers from a smaller set of base transfers, using substantial symmetric cryptography. Ishai, Kilian, Nissim, and Petrank developed a foundational efficient extension approach.[3] An implementation must choose the extension's adversary model to match the surrounding protocol.
+
+## 7. Executing the complete protocol
+
+Once the circuit and output policy have been agreed, a basic execution proceeds as follows:
+
+1. Alice generates wire labels, garbles the gates, and prepares authorized output-decoding information.
+2. Alice sends the garbled circuit and the labels for her actual input.
+3. Bob obtains his selected input labels through OT.
+4. Bob processes gates in topological order, obtaining one output label from each gate.
+5. Bob decodes the designated terminal output labels.
+
+For a terminal output wire $w$, one simple decoding rule publishes $d_w=r_w$. If Bob's final label has selection bit $p$, he recovers
+
+$$
+b=p\oplus d_w.
+$$
+
+Only designated outputs receive such decoding information. Publishing the same information for hidden intermediate wires would expose their semantics and change the functionality's leakage.
+
+A schematic evaluator can be written as:
+
+```text
+active := labels received for the actual inputs
+
+for gate t in a public topological order:
+    A := active[input_wire_1(t)]
+    B := active[input_wire_2(t)]
+    row := 2 * selection_bit(A) + selection_bit(B)
+    pad := H(encode(session_id, t, A, B))
+    active[output_wire(t)] := table[t][row] XOR pad
+
+return decode_authorized_outputs(active)
+```
+
+This pseudocode describes the teaching construction. It omits input authentication, optimized gate formats, malicious-security mechanisms, and the details of OT.
+
+## 8. A complete equality example
+
+Take two two-bit strings $x=(x_1,x_0)$ and $y=(y_1,y_0)$. Equality can be computed by
+
+$$
+d_1=x_1\oplus y_1,\qquad d_0=x_0\oplus y_0,
+$$
+
+$$
+e_1=\neg d_1,\qquad e_0=\neg d_0,
+\qquad z=e_1\land e_0.
+$$
+
+Now let Alice's input be $10$ and Bob's be $11$. The ordinary values are $d_1=0,d_0=1,e_1=1,e_0=0,z=0$.
+
+During private evaluation, Bob receives Alice's selected input labels and obtains his own through two OTs. He computes the active labels on $d_1$ and $d_0$, then those on $e_1$ and $e_0$, and finally the active label on $z$. No decoding information for the mismatch indicators is supplied. Bob learns that the strings differ, but the protocol does not separately announce the mismatch position.
+
+This example illustrates a useful distinction between computing a value and interpreting it. Bob can propagate the label corresponding to $e_0=0$ through the final AND gate without being told the intermediate value. He only interprets the terminal equality bit.
+
+Correctness extends to larger circuits by induction. The initial active labels correspond to the selected inputs. If the incoming labels of a gate encode its correct input values, the gate construction returns the label encoding its correct output value. Applying this statement in topological order establishes the correctness of every output label, after which decoding yields the ordinary circuit result.
+
+## 9. Free-XOR and Half-Gates
+
+The four-row construction explains the basic mechanism, but optimized schemes reduce its cost substantially. Free-XOR introduces a secret global offset $\Delta$ with
+
+$$
+K_w^1=K_w^0\oplus\Delta.
+$$
+
+The offset has the selection-bit property required by the scheme. For an XOR gate, choose
+
+$$
+K_c^0=K_a^0\oplus K_b^0.
+$$
+
+The evaluator computes
+
+$$
+K_a^i\oplus K_b^j
+=K_a^0\oplus K_b^0\oplus(i\oplus j)\Delta
+=K_c^{i\oplus j}.
+$$
+
+Thus the XOR gate needs no transmitted gate table. This label correlation changes the security requirements, so the earlier independent-label teaching construction cannot be assumed to remain secure after substituting correlated labels. A compatible, proven garbling construction is needed.
+
+Half-Gates combines free XOR gates with two ciphertext blocks per AND gate.[4] It is therefore useful to distinguish circuit operations by type:
+
+| Construction | XOR gate ciphertext blocks | AND gate ciphertext blocks |
+|---|---:|---:|
+| Basic four-row garbling | 4 | 4 |
+| Free-XOR with uncompressed AND tables | 0 | 4 |
+| Free-XOR with Half-Gates | 0 | 2 |
+
+These counts concern gate-table communication. They exclude OT, transferred input labels, output information, framing, and any malicious-security overhead.
+
+For the equality circuit above, an optimized construction can implement the two XOR gates without gate ciphertexts, realize NOT by exchanging the semantic interpretation of label pairs, and use one Half-Gates AND gate. Its gate-table payload is then two label-sized blocks. This small example also shows why total gate count alone is an incomplete performance metric.
+
+## 10. Security assumptions and operational boundaries
+
+The basic protocol assumes semi-honest behavior: each participant follows the prescribed steps while trying to infer extra information from its view. Labels conceal wire semantics, garbling restricts useful evaluation, and OT conceals input choices. Turning these observations into a security theorem requires a valid construction, cryptographic assumptions, and a simulation argument; the correctness induction does not establish privacy by itself.
+
+Freshness matters as well. A conventional garbled instance is intended for one execution with one selected set of input labels. Giving the evaluator different labels for the same input wire across repeated uses could eventually disclose both labels. In a Free-XOR construction, possession of both labels on one wire also reveals $\Delta$. Fresh garbling material avoids treating a single-use construction as reusable.
+
+Finally, the protocol protects computation under a specified model. Public circuit structure and input lengths remain public, authorized outputs retain their inherent information content, and malicious participants require additional defenses. Within those boundaries, Yao's method provides a precise and powerful construction: a Boolean computation becomes a sequence of label transformations whose final result can be disclosed while intermediate meanings remain hidden.
+
+## References for Article I
+
+1. Yehuda Lindell and Benny Pinkas. “A Proof of Security of Yao's Protocol for Two-Party Computation.” *Journal of Cryptology* 22, 2009. [Paper](https://www.cs.columbia.edu/~tal/6261/SP16/LP_yao.pdf).
+2. Sophia Yakoubov. “A Gentle Introduction to Yao's Garbled Circuits.” 2017. [Technical introduction](https://web.mit.edu/sonka89/www/papers/2017ygc.pdf).
+3. Yuval Ishai, Joe Kilian, Kobbi Nissim, and Erez Petrank. “Extending Oblivious Transfers Efficiently.” *CRYPTO*, 2003. [Institutional publication record](https://cris.technion.ac.il/en/publications/extending-oblivious-transfers-efficiently-3/).
+4. Samee Zahur, Mike Rosulek, and David Evans. “Two Halves Make a Whole: Reducing Data Transfer in Garbled Circuits Using Half Gates.” *EUROCRYPT*, 2015. [Paper](https://www.cs.virginia.edu/evans/pubs/ec2015/halfgates.pdf).
+5. Vladimir Kolesnikov and Thomas Schneider. “Improved Garbled Circuit: Free XOR Gates and Applications.” *ICALP*, 2008. Bibliographic details also appear in references 2 and 4.

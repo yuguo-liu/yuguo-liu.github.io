@@ -1,0 +1,159 @@
+# Article II — The Security Contract of Yao's Garbled Circuit: Privacy, Proof, and Practical Limits
+
+## A computation becomes a negotiated disclosure
+
+Yao's garbled circuit is often introduced through its mechanics: random wire labels, encrypted gate tables, and oblivious transfer. Those mechanisms become more meaningful when viewed as instruments for enforcing an information contract. Two participants authorize a particular computation over private inputs. The protocol should give each participant exactly the observation specified by that contract, subject to explicitly public information and the chosen adversary model.
+
+Consider a private threshold test. Alice holds an unsigned integer $x$, Bob holds a threshold $t$, and Bob is permitted to learn whether $x\geq t$. This is a technically simple functionality, but its privacy guarantee is easy to misstate. A result of 1 eliminates every possible value below $t$; a result of 0 eliminates every value at or above $t$. Such disclosure is inherent in the function. The protocol can hide the additional details of how the comparison was performed, but it cannot make the comparison result uninformative.
+
+This observation gives a useful starting point for the entire subject. The relevant question is whether the real execution exposes more than the ideal execution of the agreed functionality. Garbled circuits provide a general route to implementing that agreement through Boolean computation. Their cryptographic value lies in how carefully the agreement is translated into an actual transcript.
+
+## Simulation supplies the standard of evidence
+
+Let the functionality be
+
+$$
+f(x,y)=\bigl(f_A(x,y),f_B(x,y)\bigr).
+$$
+
+In an ideal execution, a trusted functionality receives the parties' inputs and gives each party its assigned output. A real protocol replaces that ideal service with messages and local computations. For deterministic functionalities in the semi-honest setting, privacy can be expressed by simulators $S_A,S_B$ satisfying
+
+$$
+\operatorname{View}_A^{\Pi}(x,y)
+\approx_c S_A(x,f_A(x,y)),
+$$
+
+$$
+\operatorname{View}_B^{\Pi}(x,y)
+\approx_c S_B(y,f_B(x,y)).
+$$
+
+The security parameter and agreed public information are implicit. A party's view includes its input, internal randomness, and received messages. Correctness must also ensure the authorized outputs. Lindell and Pinkas give a rigorous treatment of the basic protocol under this model.[1]
+
+The conceptual force of simulation is considerable. If the complete real view can be reproduced from information the party is already entitled to possess, the view supplies no additional computationally usable knowledge. This is stronger than showing that one message looks random or that one input bit is difficult to guess. The simulator accounts for correlations across the transcript, including correlations with the eventual output.
+
+For the threshold example, a simulated transcript may depend on Bob's threshold and the comparison result. It must not require Alice's exact integer. Consequently, two Alice inputs that produce the same authorized result for Bob should not become distinguishable through unintended transcript details.
+
+The statement also has an important quantifier: the indistinguishability claim concerns computationally bounded observers under the assumed primitives. It is not an information-theoretic assertion that every possible computation on the transcript is useless. Concrete implementations translate that asymptotic claim into parameter choices and permitted execution volumes.
+
+## The participants occupy deliberately different positions
+
+The garbler knows the correspondence between labels and bits. The evaluator obtains labels sufficient to follow one computation, but normally lacks the semantic mapping on hidden wires. The garbler does not learn the evaluator's choices during OT. These complementary limitations are what make the protocol possible.
+
+This asymmetry also explains an otherwise puzzling feature: the evaluator performs almost all of the visible circuit execution while the garbler retains the interpretation of intermediate labels. The two kinds of knowledge are separated. Executing a gate requires the active labels, whereas reading its ordinary input values requires knowledge of their meaning.
+
+Suppose, as a counterfactual, the evaluator received both labels for every one of its input wires. It could enumerate candidate inputs and evaluate the circuit repeatedly against the garbler's fixed input. Even if every individual evaluation disclosed only its designated output, the collection could reveal much more. For a threshold functionality, a sequence of chosen comparisons might locate the hidden number precisely. The restriction on label delivery therefore governs the evaluator's ability to explore alternative executions, not merely its ability to inspect a single ciphertext.
+
+Oblivious transfer enforces this restriction while hiding which alternative was selected. Its role is structural: garbling handles encoded computation, while OT supplies the private input interface. Yakoubov's introduction presents this interface alongside the circuit mechanics.[2]
+
+The evaluator also needs an output interface. Decoding information determines which labels become ordinary values and who is authorized to interpret them. A protocol that gives both parties every output when the functionality assigns them different outputs implements a different disclosure policy, regardless of how securely its internal gates are encrypted.
+
+## Garbling and two-party computation are distinct abstractions
+
+A garbling scheme can be described through four algorithms:
+
+$$
+(F,e,d)\leftarrow\mathsf{Gb}(1^\kappa,C),
+\qquad X\leftarrow\mathsf{En}(e,u),
+$$
+
+$$
+Y\leftarrow\mathsf{Ev}(F,X),
+\qquad z\leftarrow\mathsf{De}(d,Y).
+$$
+
+Here $C$ is an ordinary circuit, $F$ its garbled representation, $e$ input-encoding information, and $d$ output-decoding information. Correctness connects the algorithms through
+
+$$
+\mathsf{De}(d,\mathsf{Ev}(F,\mathsf{En}(e,u)))=C(u),
+$$
+
+subject to the scheme's stated correctness guarantee. Bellare, Hoang, and Rogaway's foundational work treats garbling as a cryptographic primitive with explicit syntax and security properties.[3]
+
+This abstraction separates useful proof obligations. A garbling theorem describes what an encoded circuit and appropriately supplied encoded inputs reveal. A two-party protocol must additionally explain how the participants obtain those inputs, how outputs are delivered, and how adversarial actions are handled. Secure evaluation of a garbled object is one component of a secure interaction.
+
+The distinction has direct practical consequences. Replacing the OT implementation requires checking its security model and interface assumptions. Changing output decoding requires checking the functionality. Substituting a faster garbling scheme requires checking compatibility with correlated labels, public information, and any malicious-security layer. Performance improvements at one boundary can invalidate assumptions at another if the boundaries remain implicit.
+
+## The shape of a privacy proof
+
+The basic proof intuition differs by corrupted role. If the garbler is semi-honest, it already knows its own labels and tables, but its interaction with the evaluator's private input takes place through OT. The privacy of the receiver's OT choices is therefore central to explaining the garbler's view.
+
+If the evaluator is semi-honest, the challenge is the garbled object itself. It possesses one active label per input wire and obtains further active labels through evaluation. The remaining rows depend on label material it does not know. A simulator must generate a circuit-shaped view consistent with the authorized output without needing the other party's private input.
+
+Hybrid reasoning explains why this is plausible. A proof gradually replaces hidden material while showing that the observer cannot detect each replacement. In a simple teaching formulation using independent labels and an idealized hash, an observer would need to query unknown label combinations to distinguish certain masked table entries from random strings. A complete argument must account for all gates, permitted queries, and dependencies between generated labels.
+
+This sketch is a guide to the proof obligation rather than a proof of every garbling algorithm. In particular, optimizations may introduce correlations deliberately. Once labels share a global offset, an argument that treats every label as an independent secret no longer applies unchanged. A scheme's efficiency and its security reasoning have to be developed together.
+
+## Malicious behavior changes the problem
+
+A participant who follows the protocol and studies the transcript is a semi-honest adversary. A participant who creates a different circuit, sends inconsistent encodings, manipulates transfers, or aborts strategically is a malicious adversary. The latter can attack the specification of the computation itself.
+
+Imagine that the agreed functionality is a threshold test, but a dishonest garbler supplies a circuit whose output is a selected bit of the evaluator's input. The internal encryption could be perfectly implemented, yet the evaluator would be executing the wrong disclosure policy. Alternatively, the garbler could arrange for one input choice to produce a recognizable failure and observe whether the evaluator reports an error. The success or failure channel would then carry information about the secret choice.
+
+Cut-and-choose addresses circuit correctness by committing to multiple garbled circuits, opening a randomly selected subset for inspection, and using unopened circuits for evaluation. Input consistency and the handling of evaluation outcomes need additional care; naive repetition does not supply a malicious-security proof. Lindell and Pinkas analyze these issues in their maliciously secure construction.[4]
+
+The obligations can be organized by interface:
+
+| Interface | Required property in an appropriate maliciously secure protocol |
+|---|---|
+| Circuit construction | The delivered computation is tied to the agreed functionality |
+| Input encoding | One consistent effective input is used under the protocol's rules |
+| Oblivious transfer | Choice privacy and sender-message protection survive permitted deviations |
+| Output processing | Outputs and failure handling follow the specified disclosure policy |
+| Session management | Messages cannot be confused across distinct executions |
+
+An adversary may still choose a different private input from the one an application hoped it would use. Cryptography cannot establish that a submitted salary, measurement, or database entry is truthful without additional evidence. Similarly, security with abort allows interruption; it does not automatically guarantee that both participants obtain their outputs whenever one does.
+
+## Repeated executions reveal the limits of the functionality
+
+Even a correctly implemented secure protocol can support an application with excessive disclosure. Return to an integer $x$ in the range $0\leq x<2^n$. If Bob can choose a new threshold in each execution and receive every comparison result, he can use binary search. A threshold at the midpoint halves the remaining candidate interval. Repeating this process determines $x$ in at most $n$ comparisons.
+
+Every invocation may satisfy its cryptographic privacy definition. The final recovery arises from the collection of authorized outputs. This is a property of the application interface and its permitted queries, not necessarily a failure of garbling or OT.
+
+There is a separate cryptographic problem if repeated evaluations reuse the same garbled instance. An evaluator who obtains different labels for one input wire over time might collect both. In Free-XOR, their XOR reveals the global label offset. That event can undermine the restrictions on evaluating alternative wire values. Fresh garbling per execution and limits on authorized application queries solve different problems and should be analyzed separately.
+
+An implementation should therefore identify both the scope of cryptographic freshness and the scope of authorized disclosure. A fresh circuit does not erase the information accumulated from earlier outputs. A strict query policy does not justify using a garbling construction beyond its supported reuse model.
+
+## Efficiency follows the representation and the network
+
+Optimized garbling assigns very different costs to different circuit operations. Free-XOR removes transmitted ciphertexts for XOR gates, while Half-Gates uses two ciphertext blocks per AND gate.[5] This makes nonlinearity a central cost driver, although input delivery and output handling remain significant for some workloads.
+
+For a circuit with $N_{\mathrm{AND}}$ AND gates and $\kappa$-bit blocks, its Half-Gates table payload is approximately
+
+$$
+B_{\mathrm{gates}}=2\kappa N_{\mathrm{AND}}\text{ bits}.
+$$
+
+As an illustrative calculation, one million AND gates with 128-bit blocks require 256 million payload bits, or 32 million bytes, before other communication is included. At an ideal throughput of 100 megabits per second, transferring that payload alone takes at least 2.56 seconds. This is a bandwidth estimate, not a measured runtime or an assertion about the concrete security of a particular implementation.
+
+Now compare two hypothetical compilations of the same function. One uses 300,000 AND gates and two million XOR gates; the other uses 600,000 AND gates and only 100,000 XOR gates. The first has more total gates but half the Half-Gates table payload. Its local execution and memory cost may still be larger. The comparison demonstrates why a useful benchmark reports several quantities instead of selecting one aggregate gate count.
+
+Network latency introduces another distinction. Yao's basic protocol can avoid an interaction at every circuit layer, so the number of protocol rounds need not grow with circuit depth. The evaluator still performs sequentially dependent work along a long gate path. Low interaction depth and low local evaluation depth are different advantages.
+
+OT extension reduces the cost of the input interface by amortizing base transfers across many choices.[6] Other design choices affect working memory: streaming gates can reduce the need to retain the entire garbled object, while the number of simultaneously live labels depends on the evaluation schedule. Preprocessing can move some input-independent work earlier, but its feasibility depends on how the selected scheme and input-delivery protocol divide offline and online work.
+
+## The surrounding system remains part of the analysis
+
+An application rarely arrives as a minimal Boolean circuit. It arrives as comparisons, arithmetic, table lookups, and conditional operations over particular data types. The cost of translating those operations can dominate the final protocol. Frameworks such as ABY explicitly combine arithmetic sharing, Boolean sharing, and Yao-based computation to take advantage of different representations.[7] Representation conversions also cost something, so a mixed design needs an end-to-end accounting.
+
+This accounting should preserve semantics as well as performance. If a model uses signed integers, its circuit must implement the intended signed comparisons. If a score uses fixed-point arithmetic, truncation and overflow behavior must be specified. Otherwise the participants may privately compute an incorrect function with excellent cryptographic protection.
+
+Public metadata deserves equal attention. A circuit generated with a size that depends on a secret can reveal information through that size. A private branch implemented by different message schedules can reveal its selection. A diagnostic log that prints internal values can disclose what the protocol deliberately concealed. These observations follow directly from the requirement to analyze the participant's actual view rather than an idealized subset of messages.
+
+The appropriate engineering response is to make the contract explicit: input types and bounds, public circuit information, output recipients, adversary behavior, session freshness, and operational observations. A security theorem then supports that contract under stated assumptions. It does not automatically extend to a different contract inferred from the surrounding product.
+
+## A precise way to understand the contribution
+
+Yao's garbled circuit gives two participants a way to divide computational ability and semantic knowledge. The evaluator can execute an encoded computation, the garbler controls its encoding, and the input and output interfaces govern the information that crosses between them. Simulation gives this division a mathematical meaning.
+
+Its strength is generality: a public Boolean computation can be transformed into a protocol that limits disclosure under a defined threat model. Its limits are equally instructive. Authorized outputs still reveal what the function implies; stronger adversaries require stronger protocols; optimizations require compatible assumptions; and a secure transcript depends on the system's actual execution behavior. Understanding these conditions turns garbled circuits from a memorable encryption trick into a disciplined method for constructing private computation.
+
+## References for Article II
+
+1. Yehuda Lindell and Benny Pinkas. “A Proof of Security of Yao's Protocol for Two-Party Computation.” *Journal of Cryptology* 22, 2009. [Paper](https://www.cs.columbia.edu/~tal/6261/SP16/LP_yao.pdf).
+2. Sophia Yakoubov. “A Gentle Introduction to Yao's Garbled Circuits.” 2017. [Technical introduction](https://web.mit.edu/sonka89/www/papers/2017ygc.pdf).
+3. Mihir Bellare, Viet Tung Hoang, and Phillip Rogaway. “Foundations of Garbled Circuits.” *ACM CCS*, 2012. [Authors' paper overview](https://www.cs.ucdavis.edu/~rogaway/papers/gc.html).
+4. Yehuda Lindell and Benny Pinkas. “An Efficient Protocol for Secure Two-Party Computation in the Presence of Malicious Adversaries.” Extended abstract at *EUROCRYPT*, 2007. [Full version](https://eprint.iacr.org/2008/049.pdf).
+5. Samee Zahur, Mike Rosulek, and David Evans. “Two Halves Make a Whole: Reducing Data Transfer in Garbled Circuits Using Half Gates.” *EUROCRYPT*, 2015. [Paper](https://www.cs.virginia.edu/evans/pubs/ec2015/halfgates.pdf).
+6. Yuval Ishai, Joe Kilian, Kobbi Nissim, and Erez Petrank. “Extending Oblivious Transfers Efficiently.” *CRYPTO*, 2003. [Institutional publication record](https://cris.technion.ac.il/en/publications/extending-oblivious-transfers-efficiently-3/).
+7. Daniel Demmler, Thomas Schneider, and Michael Zohner. “ABY — A Framework for Efficient Mixed-Protocol Secure Two-Party Computation.” *NDSS*, 2015. [Conference publication page](https://www.ndss-symposium.org/ndss2015/ndss-2015-programme/aby-framework-efficient-mixed-protocol-secure-two-party-computation/).
